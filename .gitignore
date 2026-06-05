@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Checkpoints (use Git LFS or HuggingFace Hub instead)
+checkpoints/*.pt
+checkpoints/*.ckpt
+src/spill/model/checkpoints/
+
+# Detection screenshots
+detection_screenshots/
+
+# Test output
+*.png
+*.jpg

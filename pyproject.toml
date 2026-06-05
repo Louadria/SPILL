@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spill-glassloc"
+version = "0.1.0"
+description = "SPILL: Size, Pose, and Internal Liquid Level Estimation of Transparent Glassware"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Louis Adriaens", email = "louis@adriaens.me"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "ultralytics>=8.0",
+    "opencv-python>=4.8",
+    "scipy>=1.10",
+    "timm>=0.9",
+]
+
+[project.optional-dependencies]
+visualize = [
+    "matplotlib>=3.7",
+    "open3d>=0.18",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Louadria/SPILL"
+Paper = "https://github.com/Louadria/SPILL"
+Dataset = "https://doi.org/10.5281/zenodo.17288314"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"spill" = ["model/checkpoints/**"]

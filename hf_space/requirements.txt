@@ -1,0 +1,8 @@
+gradio>=5.0
+opencv-python>=4.8
+numpy>=1.24
+torch>=2.0
+torchvision>=0.15
+ultralytics>=8.0
+scipy>=1.10
+timm>=0.9
