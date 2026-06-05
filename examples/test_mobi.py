@@ -1,175 +1,177 @@
 #!/usr/bin/env python3
 """
-MOBI Integration Example - CriticBarista Pipeline
+Test / integration script for SPILL.
 
-This shows how to use SPILL as a drop-in replacement for the GlassLocalizer
-in the CriticBarista/MOBI robot pipeline.
+Quickly verify that models load and inference runs correctly.
+Also shows how to integrate SPILL into CriticBarista's pour pipeline.
 
-In your airo_barista code, instead of:
-    from airo_barista.perception.glassloc.glassloc import GlassLocalizer
+Usage:
+    # Self-contained test (synthetic image, placeholder camera params)
+    python examples/test_mobi.py
 
-You can use:
-    from spill import GlassDetector, reconstruct_glass_3d, detect_table_height
+    # Test with a real image
+    python examples/test_mobi.py --image path/to/glass.jpg
 
-And replace the pipeline calls:
-
-OLD (CriticBarista):
-    table_height = mobi.glass_localizer.estimate_table_height_from_depth_map(
-        depth_map, X_World_Camera)
-    glasses = mobi.glass_localizer.localize_glass(image, table_height, X_World_Camera)
-
-NEW (SPILL library):
-    table_height = detect_table_height(depth_map, K, X_World_Camera)
-    keypoints_list = detector.detect(image)
-    glasses = [reconstruct_glass_3d(kp, K, table_height, X_World_Camera)
-               for kp in keypoints_list]
-
----
-
-This script demonstrates the full pipeline assuming you're running on the MOBI robot
-with the CriticBarista environment. Run from the airo-barista directory with:
-
-    cd /home/louadria/demos/CriticBarista/airo-barista
-    python /home/louadria/demos/SPILL/examples/test_mobi.py
-
-Requires:
-    - critic-barista conda environment
-    - SPILL installed (pip install -e /home/louadria/demos/SPILL)
+    # Test with image + depth (full 3D pipeline)
+    python examples/test_mobi.py --image path/to/glass.jpg --depth path/to/depth.png
 """
-import sys
+import argparse
 import os
-import numpy as np
-import cv2
+import sys
 import time
+from pathlib import Path
 
-# Add SPILL to path if not installed
-SPILL_PATH = os.path.join(os.path.dirname(__file__), "..", "src")
-if not os.path.exists(os.path.join(SPILL_PATH, "spill")):
-    SPILL_PATH = None
-
-if SPILL_PATH and SPILL_PATH not in sys.path:
-    sys.path.insert(0, SPILL_PATH)
+import cv2
+import numpy as np
 
 from spill import GlassDetector, reconstruct_glass_3d, detect_table_height
 
 
-def test_with_saved_data():
-    """
-    Test SPILL with a saved image (no robot needed).
-
-    This is useful for quick verification that the library loads and runs.
-    """
-    print("=" * 60)
-    print("SPILL Library Test - Static Image")
-    print("=" * 60)
-
-    # Paths - adjust to your checkpoint locations
-    checkpoint = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "wild_glasses.ckpt")
-    yolo_model = os.path.join(os.path.dirname(__file__), "..", "checkpoints", "yolov8m.pt")
-
-    if not os.path.exists(checkpoint):
-        print(f"Checkpoint not found: {checkpoint}")
-        print("Run from the SPILL repo root or adjust paths.")
-        return
-
-    # Create detector
-    print(f"\nLoading detector from {checkpoint}...")
-    t0 = time.time()
+def test_with_image(args):
+    """Test detection (and optional 3D reconstruction) on a saved image."""
+    # Load detector
+    print("Loading models...")
+    t0 = time.monotonic()
     detector = GlassDetector(
-        keypoint_checkpoint=checkpoint,
-        yolo_model_path=yolo_model,
-        device="cuda",
+        keypoint_checkpoint=args.checkpoint,
+        yolo_model_path=args.yolo,
+        device=args.device,
     )
-    print(f"Loaded in {time.time() - t0:.1f}s")
+    print(f"Loaded in {(time.monotonic() - t0)*1000:.0f} ms\n")
 
-    # Create a dummy test image (or use a real one)
-    # For a real test, replace with: image = cv2.imread("path/to/glass/image.jpg")
-    test_image_path = os.path.join(os.path.dirname(__file__), "test_image.jpg")
-    if os.path.exists(test_image_path):
-        image = cv2.imread(test_image_path)
-        print(f"Loaded test image: {image.shape}")
-    else:
-        # Create a synthetic test image
-        image = np.zeros((480, 640, 3), dtype=np.uint8) + 128
-        # Draw a glass-like shape
-        cv2.rectangle(image, (250, 100), (390, 400), (200, 200, 200), -1)
-        cv2.putText(image, "TEST IMAGE", (200, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                     1, (0, 0, 255), 2)
-        print("Using synthetic test image")
+    # Load image
+    image = cv2.imread(args.image)
+    if image is None:
+        print(f"ERROR: Could not read {args.image}")
+        sys.exit(1)
+    print(f"Image: {image.shape[1]}x{image.shape[0]}")
 
     # Run detection
-    print("\nRunning detection...")
-    t0 = time.time()
+    print("Detecting...")
+    t0 = time.monotonic()
     keypoints_list = detector.detect(image)
-    elapsed = time.time() - t0
-    print(f"Detection took {elapsed*1000:.0f}ms")
-    print(f"Found {len(keypoints_list)} glass(es)")
-
-    # Try 3D reconstruction with placeholder parameters
-    K = np.array([
-        [631.0, 0.0, 320.0],
-        [0.0, 631.0, 240.0],
-        [0.0, 0.0, 1.0],
-    ])
-    X_World_Camera = np.eye(4)
-    X_World_Camera[2, 3] = 0.5
-    table_height = 0.75  # typical table height
+    print(f"Detection: {(time.monotonic() - t0)*1000:.0f} ms")
+    print(f"Found {len(keypoints_list)} glass(es)\n")
 
     for i, kp in enumerate(keypoints_list):
+        print(f"--- Glass #{i+1} ---")
+        print(f"  bottom_front:  ({kp.bottom_front[0]:.0f}, {kp.bottom_front[1]:.0f})")
+        print(f"  top_front:     ({kp.top_front[0]:.0f}, {kp.top_front[1]:.0f})")
+        print(f"  top_left:      ({kp.top_left[0]:.0f}, {kp.top_left[1]:.0f})")
+        print(f"  top_right:     ({kp.top_right[0]:.0f}, {kp.top_right[1]:.0f})")
+        if kp.fluid_level is not None:
+            print(f"  fluid_level:   ({kp.fluid_level[0]:.0f}, {kp.fluid_level[1]:.0f})")
+        if kp.fluid_level_2 is not None:
+            print(f"  fluid_level_2: ({kp.fluid_level_2[0]:.0f}, {kp.fluid_level_2[1]:.0f})")
+
+    # 3D reconstruction if depth provided
+    if args.depth:
+        depth_raw = cv2.imread(args.depth, cv2.IMREAD_UNCHANGED)
+        if depth_raw is None:
+            print(f"ERROR: Could not read {args.depth}")
+            sys.exit(1)
+        depth_map = depth_raw.astype(np.float32) / 1000.0
+
+        K = np.array([
+            [631.0, 0.0, 320.0],
+            [0.0, 631.0, 240.0],
+            [0.0, 0.0, 1.0],
+        ], dtype=np.float32)
+        X_World_Camera = np.eye(4)
+
+        if args.table_height is None:
+            table_height = detect_table_height(depth_map, K, X_World_Camera)
+            print(f"\nEstimated table height: {table_height*100:.1f} cm")
+        else:
+            table_height = args.table_height
+            print(f"\nUsing provided table height: {table_height*100:.1f} cm")
+
+        print("Reconstructing 3D...")
+        glasses = reconstruct_glass_3d(keypoints_list, K, table_height, X_World_Camera)
+        for i, glass in enumerate(glasses):
+            if glass is None:
+                print(f"\nGlass #{i+1}: 3D reconstruction failed")
+                continue
+            print(f"\nGlass #{i+1}:")
+            print(f"  radius={glass.radius*100:.1f}cm  height={glass.height*100:.1f}cm")
+            print(f"  tilt={np.rad2deg(glass.glass_angle):.1f}deg  fluid={glass.fluid_percentage*100:.0f}%")
+            print(f"  reprojection_error={glass.reprojection_error:.1f}px")
+
+
+def show_criticbarista_integration():
+    """Print integration instructions for CriticBarista."""
+    print("""
+=== CriticBarista Integration Guide ===
+
+Replace GlassLocalizer calls in pour_drinkz.py with:
+
+    from spill import GlassDetector, reconstruct_glass_3d, detect_table_height
+
+    # In __init__:
+    self._spill = GlassDetector(
+        keypoint_checkpoint="/path/to/wild_glasses.ckpt",
+        yolo_model_path="/path/to/yolov8m.pt",
+        device="cuda",
+    )
+
+    # In the detection loop (replaces self.glass_localizer.localize_glass):
+    K = self.wrist_camera.intrinsics_matrix()
+    depth_map = self.wrist_camera._retrieve_depth_map()
+    image = self.wrist_camera._retrieve_rgb_image_as_int()
+
+    table_height = detect_table_height(depth_map, K, X_World_Camera)
+    keypoints_list = self._spill.detect(image)
+
+    glasses = []
+    for kp in keypoints_list:
         glass = reconstruct_glass_3d(kp, K, table_height, X_World_Camera)
         if glass:
-            print(f"\nGlass {i+1}:")
-            print(f"  Radius: {glass.radius*100:.1f} cm")
-            print(f"  Height: {glass.height*100:.1f} cm")
-            print(f"  Fluid: {glass.fluid_percentage*100:.0f}%")
-            print(f"  Error: {glass.reprojection_error:.1f} px")
+            # Build GlassInfo for downstream code:
+            X_W_glass = np.eye(4)
+            X_W_glass[:3, 3] = (X_World_Camera @ np.append(glass.center_3d, 1))[:3]
+            from airo_barista.perception.glassloc.GlassInfo import GlassInfo
+            glasses.append(GlassInfo(
+                X_W_glass, glass.radius, glass.height,
+                glass.fluid_percentage, f"glass_{len(glasses)}"
+            ))
+""")
 
-    print("\n" + "=" * 60)
-    print("Test complete!")
 
+def main():
+    parser = argparse.ArgumentParser(description="SPILL test / integration script")
+    parser.add_argument("--image", type=str, default=None, help="Test image path")
+    parser.add_argument("--depth", type=str, default=None, help="Depth map path (16-bit PNG, mm)")
+    parser.add_argument("--checkpoint", type=str, default=None, help="Keypoint checkpoint")
+    parser.add_argument("--yolo", type=str, default=None, help="YOLO model path")
+    parser.add_argument("--device", type=str, default="cuda", help="Device (cuda/cpu)")
+    parser.add_argument("--table-height", type=float, default=None, help="Override table height (m)")
+    parser.add_argument("--show-integration", action="store_true",
+                        help="Show CriticBarista integration instructions")
+    args = parser.parse_args()
 
-def integrate_into_criticbarista():
-    """
-    Shows how to integrate SPILL into CriticBarista's pour_drinkz.py flow.
+    # Default paths
+    base_dir = Path(__file__).parent.parent
+    if args.checkpoint is None:
+        args.checkpoint = str(base_dir / "checkpoints" / "wild_glasses.ckpt")
+    if args.yolo is None:
+        args.yolo = str(base_dir / "checkpoints" / "yolov8m.pt")
 
-    Replace this section in pour_drinkz.py:
+    if args.show_integration:
+        show_criticbarista_integration()
+        return
 
-        table_height = self.glass_localizer.estimate_table_height_from_depth_map(
-            depth_map, X_World_Camera)
-        glasses = self.glass_localizer.localize_glass(image, table_height, X_World_Camera)
+    # If no image provided, use a synthetic one
+    if args.image is None:
+        print("No image provided. Creating synthetic test image...")
+        image = np.zeros((480, 640, 3), dtype=np.uint8) + 128
+        cv2.rectangle(image, (250, 100), (390, 400), (200, 200, 200), -1)
+        tmp_path = "/tmp/spill_test_image.jpg"
+        cv2.imwrite(tmp_path, image)
+        args.image = tmp_path
+        print(f"Saved synthetic image to {tmp_path}\n")
 
-    With:
-
-        from spill import GlassDetector, reconstruct_glass_3d, detect_table_height
-
-        # Initialize once (e.g., in __init__)
-        self._spill_detector = GlassDetector(
-            keypoint_checkpoint="/path/to/wild_glasses.ckpt",
-            yolo_model_path="/path/to/yolov8m.pt",
-            device="cuda",
-        )
-
-        # In the detection loop:
-        K = self.wrist_camera.intrinsics_matrix()
-        table_height = detect_table_height(depth_map, K, X_World_Camera)
-        keypoints_list = self._spill_detector.detect(image)
-
-        glasses = []
-        for kp in keypoints_list:
-            glass = reconstruct_glass_3d(kp, K, table_height, X_World_Camera)
-            if glass:
-                # Convert to the format expected by downstream code
-                glasses.append([
-                    glass.center_3d,        # top_middle_3d
-                    glass.radius,
-                    glass.height,
-                    glass.fluid_percentage,
-                ])
-
-    See demo_3d.py for a complete working example.
-    """
-    print("See function docstring for integration instructions.")
+    test_with_image(args)
 
 
 if __name__ == "__main__":
-    test_with_saved_data()
+    main()

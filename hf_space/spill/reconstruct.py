@@ -11,25 +11,39 @@ from .types import GlassDetection, GlassKeypoints
 
 
 def reconstruct_glass_3d(
-    keypoints: GlassKeypoints,
+    keypoints,  # GlassKeypoints or List[GlassKeypoints]
     camera_intrinsics: np.ndarray,
     table_height: float,
     X_World_Camera: np.ndarray,
-) -> Optional[GlassDetection]:
+):
     """Reconstruct 3D glass properties from 2D keypoints.
 
-    Uses camera intrinsics, table plane, and geometric optimization to
-    estimate glass center, radius, height, tilt angle, and fluid level.
+    Accepts a single GlassKeypoints or a list. Returns a GlassDetection or list
+    of GlassDetection (with None for any that failed reconstruction).
 
     Args:
-        keypoints: Detected 2D keypoints for a single glass
+        keypoints: GlassKeypoints or List[GlassKeypoints] from detector.detect()
         camera_intrinsics: 3x3 camera intrinsic matrix K
         table_height: Height of the table in world frame (meters)
         X_World_Camera: 4x4 transformation from camera to world frame
 
     Returns:
-        GlassDetection with 3D properties, or None if reconstruction failed
+        GlassDetection (single) or List[GlassDetection] (batch), with None for failures
     """
+    if isinstance(keypoints, list):
+        return [
+            _reconstruct_single(kp, camera_intrinsics, table_height, X_World_Camera)
+            for kp in keypoints
+        ]
+    return _reconstruct_single(keypoints, camera_intrinsics, table_height, X_World_Camera)
+
+
+def _reconstruct_single(
+    keypoints: GlassKeypoints,
+    camera_intrinsics: np.ndarray,
+    table_height: float,
+    X_World_Camera: np.ndarray,
+) -> Optional[GlassDetection]:
     K = camera_intrinsics
     bottom_front_2d = keypoints.bottom_front
     top_front_2d = keypoints.top_front
