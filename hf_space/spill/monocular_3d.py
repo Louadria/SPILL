@@ -270,25 +270,34 @@ class Monocular3DReconstructor:
         Returns
         -------
         glasses : list[GlassDetection | None]
-        depth   : (H,W) relative depth map
+        depth   : (H,W) depth map (scaled to real-world meters)
         info    : dict with plane_normal, plane_d, K, table_height, X_World_Camera
         """
-        # 1. Monocular depth
-        depth = self._depth.estimate(image_bgr)
+        # 1. Monocular depth (relative, arbitrary scale)
+        depth_rel = self._depth.estimate(image_bgr)
 
         # 2. Camera intrinsics
         if K is None:
             K = estimate_intrinsics(*image_bgr.shape[:2])
 
-        # 3. Table plane via RANSAC
-        plane_n, plane_d = ransac_table_plane(depth, K, keypoints)
+        # 3. Table plane via RANSAC (in relative depth units)
+        plane_n, plane_d_rel = ransac_table_plane(depth_rel, K, keypoints)
 
-        # 4. World transform
+        # 4. Scale relative depth to real-world meters.
+        # DepthAnythingV2 only gives depth up to an unknown scale factor.
+        # Assume a typical table height of ~0.75 m and scale accordingly.
+        ASSUMED_TABLE_HEIGHT = 0.75  # meters
+        scale = ASSUMED_TABLE_HEIGHT / max(abs(plane_d_rel), 1e-6)
+        depth = depth_rel * scale
+        plane_d = plane_d_rel * scale
+
+        # 5. World transform (now in real-world meters)
         X_wc, table_h = build_world_transform(plane_n, plane_d)
 
-        # 5. SPILL cylinder estimation
+        # 6. SPILL cylinder estimation
         from .reconstruct import reconstruct_glass_3d
-        glasses = reconstruct_glass_3d(keypoints, K, table_h, X_wc)
+        raw = reconstruct_glass_3d(keypoints, K, table_h, X_wc)
+        glasses = raw if isinstance(raw, list) else [raw]
 
         info = dict(
             plane_normal=plane_n,

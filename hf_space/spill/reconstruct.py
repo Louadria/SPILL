@@ -147,7 +147,7 @@ def _reconstruct_single(
         glass_angle = 0.0
 
     # Sanity check
-    if not (0.005 < radius_3d < 0.5 and 0.005 < height_3d < 0.5):
+    if not (0.005 < radius_3d < 1.0 and 0.005 < height_3d < 1.0):
         return None
 
     # --- Compute 3D keypoints ---

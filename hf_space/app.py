@@ -10,6 +10,7 @@ To deploy:
 2. Upload this directory contents
 3. Or run: `huggingface-cli login` then push from terminal
 """
+import os
 import cv2
 import numpy as np
 import torch
@@ -25,10 +26,11 @@ BASE_DIR = Path(__file__).parent
 CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "wild_glasses.ckpt"
 YOLO_PATH = BASE_DIR / "checkpoints" / "yolov8m.pt"
 
-# Detect device — HF Spaces have proper CUDA; local dev may not
-try:
-    DEVICE = "cuda" if torch.cuda.is_available() and torch.zeros(1).cuda().device.type == "cuda" else "cpu"
-except RuntimeError:
+# Detect device — default to CPU for safety (Blackwell GPU + old PyTorch issue).
+# HF Spaces set SPILL_FORCE_CUDA=1 in the Dockerfile to enable GPU.
+if os.environ.get("SPILL_FORCE_CUDA"):
+    DEVICE = "cuda"
+else:
     DEVICE = "cpu"
 
 print(f"Loading SPILL models on {DEVICE}...")
