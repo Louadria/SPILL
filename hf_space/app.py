@@ -1,8 +1,9 @@
 """
-HuggingFace Space app for SPILL: Glass Keypoint Detection
+HuggingFace Space app for SPILL: Glass Keypoint Detection + 3D Reconstruction
 
-Gradio demo that lets users upload images and see detected glass keypoints.
-Uses CPU inference since HF Spaces (free tier) don't always have GPU.
+Gradio demo with two tabs:
+1. 2D Reconstruction — detect keypoints on uploaded images
+2. 3D Reconstruction — monocular depth estimation + cylinder reconstruction
 
 To deploy:
 1. Create a new Space on HuggingFace with `gradio` SDK
@@ -16,15 +17,19 @@ import gradio as gr
 from pathlib import Path
 
 # Import SPILL library (installed via requirements.txt)
-from spill import GlassDetector
+from spill import GlassDetector, Monocular3DReconstructor
+from spill import depth_overlay, create_3d_figure, build_3d_info
 
 # Model paths - checkpoints are stored in the repo
 BASE_DIR = Path(__file__).parent
 CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "wild_glasses.ckpt"
 YOLO_PATH = BASE_DIR / "checkpoints" / "yolov8m.pt"
 
-# Detect device
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# Detect device — HF Spaces have proper CUDA; local dev may not
+try:
+    DEVICE = "cuda" if torch.cuda.is_available() and torch.zeros(1).cuda().device.type == "cuda" else "cpu"
+except RuntimeError:
+    DEVICE = "cpu"
 
 print(f"Loading SPILL models on {DEVICE}...")
 detector = GlassDetector(
@@ -32,7 +37,21 @@ detector = GlassDetector(
     yolo_model_path=str(YOLO_PATH),
     device=DEVICE,
 )
-print("Models loaded!")
+print("2D models loaded!")
+
+# Lazy-load 3D reconstructor on first use (saves GPU VRAM at startup)
+_reconstructor = None
+
+
+def get_reconstructor():
+    global _reconstructor
+    if _reconstructor is None:
+        print("[3D] Lazy-loading 3D reconstructor...")
+        _reconstructor = Monocular3DReconstructor(
+            depth_model_size="large",
+            device=DEVICE,
+        )
+    return _reconstructor
 
 
 KP_COLORS = {
@@ -42,15 +61,6 @@ KP_COLORS = {
     "top_right": (255, 0, 255),        # Magenta
     "fluid_level": (0, 255, 255),      # Cyan
     "fluid_level_2": (255, 255, 0),    # Yellow
-}
-
-KP_LABELS = {
-    "bottom_front": "Bottom Front",
-    "top_front": "Top Front",
-    "top_left": "Top Left",
-    "top_right": "Top Right",
-    "fluid_level": "Fluid Level",
-    "fluid_level_2": "Fluid Level (alt)",
 }
 
 
@@ -84,8 +94,8 @@ def draw_detections(image, keypoints_list):
     return output
 
 
-def detect_glasses(image):
-    """Gradio callback: detect glasses and return annotated image + info."""
+def detect_glasses_2d(image):
+    """2D tab callback: detect glasses and return annotated image + info."""
     if image is None:
         return None, "Please upload an image."
 
@@ -122,15 +132,56 @@ def detect_glasses(image):
     return output_rgb, info
 
 
-# Build Gradio interface
-DESCRIPTION = """
-# SPILL: Glass Keypoint Detection
+def detect_glasses_3d(image):
+    """3D tab callback: full monocular 3D reconstruction."""
+    if image is None:
+        return None, None, None, "Please upload an image."
 
-Detect **transparent glassware** in images using semantic keypoint detection.
+    if isinstance(image, dict):
+        image = image["image"]
+    image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    # Step 1: 2D keypoint detection
+    keypoints_list = detector.detect(image_bgr)
+
+    if not keypoints_list:
+        output = image.copy()
+        return (output, None, None,
+                "No glasses detected. Try an image with clear glasses/cups/wine glasses.")
+
+    # Step 2: Load 3D reconstructor (lazy)
+    reconstructor = get_reconstructor()
+
+    # Step 3: Full 3D reconstruction
+    glasses, depth_map, info = reconstructor.reconstruct(image_bgr, keypoints_list)
+
+    # Step 4: Annotated image (2D keypoints overlaid)
+    annotated_rgb = draw_detections(image_bgr, keypoints_list)
+    annotated_rgb = cv2.cvtColor(annotated_rgb, cv2.COLOR_BGR2RGB)
+
+    # Step 5: Depth overlay
+    depth_vis = depth_overlay(image, depth_map)
+
+    # Step 6: 3D plot
+    plot = create_3d_figure(glasses, info, image.shape)
+
+    # Step 7: Info text
+    info_text = build_3d_info(glasses, keypoints_list, info)
+
+    return annotated_rgb, depth_vis, plot, info_text
+
+
+# ── Build Gradio interface ──────────────────────────────────────
+
+DESCRIPTION = """
+# SPILL: Glass Detection & 3D Reconstruction
+
+Detect **transparent glassware** in images using semantic keypoint detection — and reconstruct full 3D cylinders from a single RGB image.
 
 **How it works:**
 1. YOLOv8 detects glass bounding boxes (cups, vases, wine glasses)
 2. A keypoint detector predicts structural points + fluid level on each glass
+3. (3D tab) DepthAnythingV2 estimates monocular depth → RANSAC finds the table plane → cylinder estimation gives radius, height, tilt, and fluid level
 
 **Key points:**
 - 🔴 Bottom Front — base of the glass facing the camera
@@ -140,24 +191,53 @@ Detect **transparent glassware** in images using semantic keypoint detection.
 - 🟡 Fluid Level — liquid surface detected by the model
 - 🟠 Fluid Level (alt) — secondary fluid level candidate (shown when the model detects multiple peaks on the fluid level heatmap; useful when the first peak is uncertain, so downstream use cases can conservatively pick the highest or lowest value)
 
-Full 3D reconstruction requires a depth camera and calibrated transforms — see the [GitHub repo](https://github.com/Louadria/SPILL) for the complete pipeline.
+**3D Reconstruction** uses DepthAnythingV2-Large for monocular depth estimation, Open3D RANSAC for plane detection, and the SPILL cylinder solver for full 3D parameters.
 """
 
-with gr.Blocks(title="SPILL Glass Detection") as demo:
+with gr.Blocks(title="SPILL Glass Detection & 3D Reconstruction") as demo:
     gr.Markdown(DESCRIPTION)
 
-    with gr.Row():
-        input_img = gr.Image(type="numpy", label="Upload Image", sources=["upload", "clipboard"])
-        output_img = gr.Image(type="numpy", label="Detection Result")
+    with gr.Tabs():
+        # ── 2D Detection Tab ──
+        with gr.Tab("2D Reconstruction"):
+            gr.Markdown(
+                "### 2D Keypoint Detection\n\n"
+                "Upload an image and see detected glass keypoints overlaid. "
+                "No depth camera needed."
+            )
+            with gr.Row():
+                input_2d = gr.Image(type="numpy", label="Upload Image", sources=["upload", "clipboard"])
+                output_2d = gr.Image(type="numpy", label="Detection Result")
+            detect_2d_btn = gr.Button("Detect Glasses", variant="primary")
+            info_2d = gr.Textbox(label="Detection Info")
+            detect_2d_btn.click(
+                fn=detect_glasses_2d,
+                inputs=input_2d,
+                outputs=[output_2d, info_2d],
+            )
 
-    detect_btn = gr.Button("Detect Glasses", variant="primary")
-    info_output = gr.Textbox(label="Detection Info")
-
-    detect_btn.click(
-        fn=detect_glasses,
-        inputs=input_img,
-        outputs=[output_img, info_output],
-    )
+        # ── 3D Reconstruction Tab ──
+        with gr.Tab("3D Reconstruction"):
+            gr.Markdown(
+                "### Monocular 3D Reconstruction\n\n"
+                "From a single RGB image: estimate depth (DepthAnythingV2), find the table plane (RANSAC), "
+                "and reconstruct 3D glass cylinders — radius, height, tilt angle, and fluid level. "
+                "No depth camera required!\n\n"
+                "**Best results:** place the glass on a flat surface (table), keep the camera roughly level."
+            )
+            with gr.Row():
+                input_3d = gr.Image(type="numpy", label="Upload Image", sources=["upload", "clipboard"])
+                output_3d_annotated = gr.Image(type="numpy", label="Keypoints Overlay")
+            with gr.Row():
+                output_3d_depth = gr.Image(type="numpy", label="Depth Estimate")
+                output_3d_plot = gr.Plot(label="3D Reconstruction")
+            detect_3d_btn = gr.Button("Reconstruct 3D", variant="primary")
+            info_3d = gr.Textbox(label="3D Reconstruction Info")
+            detect_3d_btn.click(
+                fn=detect_glasses_3d,
+                inputs=input_3d,
+                outputs=[output_3d_annotated, output_3d_depth, output_3d_plot, info_3d],
+            )
 
     gr.Markdown("""
     ---

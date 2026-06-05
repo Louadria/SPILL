@@ -10,6 +10,13 @@ Dataset: https://doi.org/10.5281/zenodo.17288314
 from .types import GlassDetection, GlassKeypoints
 from .detect import GlassDetector
 from .reconstruct import reconstruct_glass_3d, detect_table_height
+from .monocular_3d import (
+    Monocular3DReconstructor,
+    depth_to_colormap,
+    depth_overlay,
+    create_3d_figure,
+    build_3d_info,
+)
 
 __all__ = [
     "GlassDetection",
@@ -17,4 +24,9 @@ __all__ = [
     "GlassDetector",
     "reconstruct_glass_3d",
     "detect_table_height",
+    "Monocular3DReconstructor",
+    "depth_to_colormap",
+    "depth_overlay",
+    "create_3d_figure",
+    "build_3d_info",
 ]

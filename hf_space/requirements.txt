@@ -6,3 +6,7 @@ torchvision>=0.15
 ultralytics>=8.0
 scipy>=1.10
 timm>=0.9
+depth-anything-v2>=0.1
+huggingface-hub>=0.20
+open3d>=0.18
+plotly>=5.0
