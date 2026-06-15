@@ -37,9 +37,12 @@ The pre-trained checkpoints (`wild_glasses.ckpt` + `yolov8m.pt`) are included in
 ```python
 from spill import GlassDetector
 
-detector = GlassDetector()  # loads checkpoints automatically
+detector = GlassDetector(
+    keypoint_checkpoint="checkpoints/wild_glasses.ckpt",
+    yolo_model_path="checkpoints/yolov8m.pt",
+)
 
-# 2D keypoint detection from any RGB image (OpenCV/BGR format)
+# 2D keypoint detection from an RGB image (OpenCV/BGR format)
 keypoints_list = detector.detect(image)  # returns list of GlassKeypoints
 
 for kp in keypoints_list:
