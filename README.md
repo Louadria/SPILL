@@ -12,10 +12,23 @@ These results demonstrate that task-relevant keypoint detection enables scalable
 
 [![Watch the demo](https://img.youtube.com/vi/gcHi0ebrDps/0.jpg)](https://www.youtube.com/watch?v=gcHi0ebrDps)
 
-# Glasses-in-the-Wild Dataset
+[![HuggingFace Space](https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Space-blue)](https://huggingface.co/spaces/Louadria/SPILL)
+
+## Glasses-in-the-Wild Dataset
+
 A crowdsourced dataset of transparent glassware in diverse domestic and real-world environments, annotated with bounding box and keypoints.
 
-Available at: [ 10.5281/zenodo.17288314](https://doi.org/10.5281/zenodo.17288314) 
+Available at: [10.5281/zenodo.17288314](https://doi.org/10.5281/zenodo.17288314)
+
+## Architecture
+
+The SPILL pipeline has two stages:
+
+1. **Object Detection** — YOLOv8m detects glass bounding boxes (COCO classes: cup, vase, wine glass)
+2. **Keypoint Detection** — A MaxViT-Unet model predicts 5 semantic keypoints per glass:
+   - Bottom front, top front, top left, top right (structural)
+   - Fluid level (liquid surface)
+3. **3D Reconstruction** — Geometric optimization back-projects 2D keypoints to 3D using camera intrinsics and the table plane, then iteratively refines radius, height, and tilt angle.
 
 
 # Usage
@@ -29,3 +42,19 @@ Detects the table plane in a point cloud and returns its height in the platform 
 ## `localize_glass(image, table_height, X_Platform_Camera, platform_height)`
 
 Detects all glasses in an RGB image and returns their 3D positions in the platform frame.
+
+## Citation
+
+If you use this code or dataset in your research, please cite:
+
+```bibtex
+@article{adriaens2025spill,
+  title={SPILL: Size, Pose, and Internal Liquid Level Estimation of Transparent Glassware for Robotic Bartending},
+  author={Adriaens, Louis et al.},
+  year={2025}
+}
+```
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
